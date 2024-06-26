@@ -8,7 +8,7 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
-
+import ast
 import torch
 from scene import Scene
 import os
@@ -20,6 +20,18 @@ from utils.general_utils import safe_state
 from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
+
+def validate_cams(lists_of_numbers, length):
+    if not isinstance(lists_of_numbers, list):
+        raise ValueError("Input is not a list.")
+    for sublist in lists_of_numbers:
+        if not isinstance(sublist, list):
+            raise ValueError("Sublist is not a list.")
+        if len(sublist) != length:
+            raise ValueError(f"Sublist {sublist} does not have the required length of {length}.")
+        for num in sublist:
+            if not isinstance(num, (int, float)):
+                raise ValueError(f"Element {num} in sublist {sublist} is not a number.")
 
 def render_set(model_path, name, iteration, views, gaussians, pipeline, background, kernel_size, scale_factor):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), f"test_preds_{scale_factor}")
@@ -35,7 +47,7 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
 
-def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool):
+def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, new_cams : list):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
@@ -49,6 +61,7 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
         if not skip_test:
              render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background, kernel_size, scale_factor=scale_factor)
 
+
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Testing script parameters")
@@ -58,10 +71,25 @@ if __name__ == "__main__":
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--quiet", action="store_true")
+
+    parser.add_argument(
+        '--new_cams',
+        type=str,
+        default=None,
+        help="A list of lists of numbers, e.g. '[[1,2,3], [3,4,5]]'"
+    )
+
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
+
+    new_cams = ast.literal_eval(args.new_cams)
+    try:
+        validate_cams(new_cams, 16)
+        print("Validated list of lists:", new_cams)
+    except ValueError as e:
+        print("Validation Error:", e)
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test)
+    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, new_cams)
